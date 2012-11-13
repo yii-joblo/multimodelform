@@ -12,7 +12,7 @@
  * @copyright 2011 myticket it-solutions gmbh
  * @license New BSD License
  * @category User Interface
- * @version 4.0
+ * @version 4.1
  */
 class MultiModelForm extends CWidget
 {
@@ -720,7 +720,13 @@ class MultiModelForm extends CWidget
             $this->fieldsetWrapper = array('tag' => 'tr', 'htmlOptions' => array('class' => self::CLASSPREFIX . 'row'));
             $this->rowWrapper = array('tag' => 'td', 'htmlOptions' => array('class' => self::CLASSPREFIX . 'cell'));
             $this->removeLinkWrapper = $this->rowWrapper;
+            if($this->bootstrapLayout)
+            {
+               if(!isset($this->tableHtmlOptions['class']))
+                   $this->tableHtmlOptions['class'] = 'table '.self::CLASSPREFIX . 'table';
         }
+        }
+        else
         if ($this->bootstrapLayout)
         {
             $this->rowWrapper = array('tag' => 'div', 'htmlOptions' => array('class' => 'control-group '.self::CLASSPREFIX.'row'));
@@ -1203,7 +1209,7 @@ class MultiModelRenderForm extends CForm
             {
                 $elemName = $element->name;
 
-                if($this->parentWidget->bootstrapLayout)
+                if($this->parentWidget->bootstrapLayout && !$this->parentWidget->tableView)
                     $element->layout = "{label}<div class=\"controls\">{input}\n{hint}\n{error}</div>";
 
                 $elemLabel=$this->parentWidget->tableView ? '' : $this->renderElementLabel($element);
