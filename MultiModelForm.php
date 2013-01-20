@@ -12,7 +12,7 @@
  * @copyright 2011 myticket it-solutions gmbh
  * @license New BSD License
  * @category User Interface
- * @version 4.1
+ * @version 4.5
  */
 class MultiModelForm extends CWidget
 {
@@ -209,7 +209,6 @@ class MultiModelForm extends CWidget
         'htmlOptions' => array(),
     );
 
-
     /**
      * Hide the empty copyTemplate, show on Add Item click
      *
@@ -222,6 +221,14 @@ class MultiModelForm extends CWidget
      * @var int
      */
     public $limit = 0;
+
+    /**
+     * The CForm for rendering a item row
+     * Override MultiModelRenderForm for custom handling
+     *
+     * @var string
+     */
+    public $renderForm = 'MultiModelRenderForm';
 
     /**
      * The javascript code jsBeforeClone,jsAfterClone ...
@@ -389,8 +396,8 @@ class MultiModelForm extends CWidget
             foreach ($deleteItems as $pk)
                 if (!empty($pk))
                 {
-                    //array doesn't work with activerecord?
-                    if (count($pk == 1))
+                    //workaround, if no composite pk
+                    if (count($pk) == 1)
                     {
                         $vals = array_values($pk);
                         $pk = $vals[0];
@@ -484,6 +491,30 @@ class MultiModelForm extends CWidget
             {
                 $model = new $modelClass('update');
 
+                //load the models and/or assign the primary keys
+                if (is_array($allExistingPk))
+                {
+                    $primaryKeys = $allExistingPk[$idx];
+                    if (method_exists($model, 'findByPk')) //only if is CActiveRecord 
+                    {
+                        //workaround, if no composite pk
+                        if (count($primaryKeys) == 1)
+                        {
+                            $vals = array_values($primaryKeys);
+                            $primaryKeys = $vals[0];
+                        }
+
+                        $model = $model->findByPk($primaryKeys); //load the model attributes from db
+                    }
+
+                    else
+                        //allow to change pk, if pk is part of the visible formelements
+                        $model->setOldPrimaryKey($primaryKeys);
+
+                    //ensure to assign primary keys (when pk is unsafe or not defined in rules)
+                    $model->setAttributes($primaryKeys, false);
+                }
+
                 //should work for CModel, mongodb models... too
                 if (method_exists($model, 'setIsNewRecord'))
                     $model->setIsNewRecord(false);
@@ -492,13 +523,6 @@ class MultiModelForm extends CWidget
 
                 if (!empty($masterValues))
                     $model->setAttributes($masterValues, false); //assign mastervalues
-
-                //ensure to assign primary keys (when pk is unsafe or not defined in rules)
-                if (is_array($allExistingPk))
-                {
-                    $primaryKeys = $allExistingPk[$idx];
-                    $model->setAttributes($primaryKeys, false);
-                }
 
                 // validate
                 if (!$model->validate())
@@ -525,7 +549,7 @@ class MultiModelForm extends CWidget
         unset($formData[$modelClass]['pk__']);
 
         //----------- Check for cloned elements by jQuery -----------
-        if(!empty($formData[$modelClass])) //has cloned elements
+        if (!empty($formData[$modelClass])) //has cloned elements
         {
             // use the first item as reference
             $refAttribute = key($formData[$modelClass]);
@@ -551,8 +575,7 @@ class MultiModelForm extends CWidget
                                         break;
                                     }
                                 }
-                            }
-                            else
+                            } else
                                 $isEmpty = empty($values[$idx]);
 
                             $allEmpty = $isEmpty && $allEmpty;
@@ -580,8 +603,7 @@ class MultiModelForm extends CWidget
                             }
 
                             $model->$attrKey = $arrayAttribute;
-                        }
-                        else
+                        } else
                             $model->$attrKey = $values[$idx];
                     }
 
@@ -618,10 +640,9 @@ class MultiModelForm extends CWidget
                 if (empty($pkName))
                     $pkName = $model->tableSchema->primaryKey;
 
-                $result = array($pkName => $pkValue);
+                $result = is_array($pkValue) ? $pkValue : array($pkName => $pkValue);
             }
-        }
-        else // when working with EMongoDocument
+        } else // when working with EMongoDocument
             if (method_exists($model, 'primaryKey'))
             {
                 $pkName = $model->primaryKey();
@@ -658,7 +679,7 @@ class MultiModelForm extends CWidget
      */
     public function getCopyFieldsetId()
     {
-        return $this->id .'_copytemplate';
+        return $this->id . '_copytemplate';
     }
 
     /**
@@ -666,9 +687,9 @@ class MultiModelForm extends CWidget
      *
      * @return string
      */
-    public function getRemoveLink($isCopyTemplate=false)
+    public function getRemoveLink($isCopyTemplate = false)
     {
-        if($isCopyTemplate && !$this->hideCopyTemplate)
+        if ($isCopyTemplate && !$this->hideCopyTemplate)
             return '';
 
         if (empty($this->removeText) || !$this->allowRemoveItem) //added v3.1
@@ -676,17 +697,17 @@ class MultiModelForm extends CWidget
 
         $onClick = '$(this).parent().parent().remove(); mmfRecordCount--; return false;';
 
-        if($isCopyTemplate && $this->hideCopyTemplate)
+        if ($isCopyTemplate && $this->hideCopyTemplate)
         {
             $copyId = $this->getCopyFieldsetId();
-            $onClick = 'if($(this).parent().parent().attr("id")=="'.$copyId.'") {clearAllInputs($("#'.$copyId.'"));$(this).parent().parent().hide()} else ' . $onClick;
+            $onClick = 'if($(this).parent().parent().attr("id")=="' . $copyId . '") {clearAllInputs($("#' . $copyId . '"));$(this).parent().parent().hide()} else ' . $onClick;
         }
 
         if (!empty($this->removeConfirm))
             $onClick = "if(confirm('{$this->removeConfirm}')) " . $onClick;
 
         $htmlOptions = array_merge($this->removeHtmlOptions, array('onclick' => $onClick));
-        $htmlOptions['class'] = isset($htmlOptions['class']) ? $htmlOptions['class'].' '.self::CLASSPREFIX.'removelink' : self::CLASSPREFIX.'removelink';
+        $htmlOptions['class'] = isset($htmlOptions['class']) ? $htmlOptions['class'] . ' ' . self::CLASSPREFIX . 'removelink' : self::CLASSPREFIX . 'removelink';
 
         $link = CHtml::link($this->removeText, '#', $htmlOptions);
 
@@ -712,25 +733,24 @@ class MultiModelForm extends CWidget
     public function init()
     {
         $this->removeLinkWrapper['htmlOptions']['class'] = !empty($this->removeLinkWrapper['htmlOptions']['class']) ?
-            $this->removeLinkWrapper['htmlOptions']['class'] .' '.self::CLASSPREFIX.'removelink' :
-            self::CLASSPREFIX.'removelink';
+            $this->removeLinkWrapper['htmlOptions']['class'] . ' ' . self::CLASSPREFIX . 'removelink' :
+            self::CLASSPREFIX . 'removelink';
 
         if ($this->tableView)
         {
             $this->fieldsetWrapper = array('tag' => 'tr', 'htmlOptions' => array('class' => self::CLASSPREFIX . 'row'));
             $this->rowWrapper = array('tag' => 'td', 'htmlOptions' => array('class' => self::CLASSPREFIX . 'cell'));
             $this->removeLinkWrapper = $this->rowWrapper;
-            if($this->bootstrapLayout)
+            if ($this->bootstrapLayout)
             {
-               if(!isset($this->tableHtmlOptions['class']))
-                   $this->tableHtmlOptions['class'] = 'table '.self::CLASSPREFIX . 'table';
-        }
-        }
-        else
-        if ($this->bootstrapLayout)
-        {
-            $this->rowWrapper = array('tag' => 'div', 'htmlOptions' => array('class' => 'control-group '.self::CLASSPREFIX.'row'));
-        }
+                if (!isset($this->tableHtmlOptions['class']))
+                    $this->tableHtmlOptions['class'] = 'table ' . self::CLASSPREFIX . 'table';
+            }
+        } else
+            if ($this->bootstrapLayout)
+            {
+                $this->rowWrapper = array('tag' => 'div', 'htmlOptions' => array('class' => 'control-group ' . self::CLASSPREFIX . 'row'));
+            }
 
         $this->_recordCount = 0;
 
@@ -750,18 +770,22 @@ class MultiModelForm extends CWidget
         if (is_string($this->model))
             $this->model = new $this->model;
 
-        if (isset($this->model) && isset($this->formConfig))
+        if (isset($this->model) &&
+            isset($this->formConfig) &&
+            !empty($this->formConfig['elements']) &&
+            !method_exists($this->model, 'findByPk')
+        )
         {
+            // if not method_exists($this->model, 'findByPk'):
             // add undefined attributes in the form config as hidden fields and attribute visible = false
-            if (isset($this->formConfig) && !empty($this->formConfig['elements']))
-                foreach ($this->model->attributes as $attribute => $value)
-                {
-                    if (!array_key_exists($attribute, $this->formConfig['elements']))
-                        $this->formConfig['elements'][$attribute] = array('type' => 'hidden', 'visible' => false);
-                }
+            // because the model will not be loaded on update: see UPDATE in method initItems
+            foreach ($this->model->attributes as $attribute => $value)
+            {
+                if (!array_key_exists($attribute, $this->formConfig['elements']))
+                    $this->formConfig['elements'][$attribute] = array('type' => 'hidden', 'visible' => false);
+            }
         }
     }
-
 
     /**
      * @return array the javascript options
@@ -838,7 +862,8 @@ class MultiModelForm extends CWidget
      */
     public function renderTableBegin($renderAddLink)
     {
-        $form = new MultiModelRenderForm($this->formConfig, $this->model);
+        $renderForm = $this->renderForm;
+        $form = new $renderForm($this->formConfig, $this->model);
         $form->parentWidget = $this;
 
         //add link as div
@@ -882,7 +907,7 @@ class MultiModelForm extends CWidget
     {
         $limit = !empty($this->options['limit']) ? $this->options['limit'] : 0;
 
-        return $limit>0 ? ($limit - $this->_recordCount) <= 0 : false;
+        return $limit > 0 ? ($limit - $this->_recordCount) <= 0 : false;
     }
 
 
@@ -904,15 +929,13 @@ class MultiModelForm extends CWidget
         $idx = 0;
         $errorPk = null;
 
-
         if ($isErrorMode)
         {
             if ($this->showErrorSummary)
                 echo CHtml::errorSummary($this->validatedItems);
 
             $data = $this->validatedItems;
-        }
-        else
+        } else
             $data = $this->data; //from the db
 
 
@@ -936,7 +959,8 @@ class MultiModelForm extends CWidget
 
             foreach ($data as $model)
             {
-                $form = new MultiModelRenderForm($this->formConfig, $model);
+                $renderForm = $this->renderForm;
+                $form = new $renderForm($this->formConfig, $model);
                 $form->index = $idx;
                 $form->parentWidget = $this;
 
@@ -958,10 +982,11 @@ class MultiModelForm extends CWidget
         }
 
         //if form is displayed first time or in errormode and want to show 'Add item' (and a 'CopyTemplate')
-        if($showAddLink)
+        if ($showAddLink)
         {
             // add an empty fieldset as CopyTemplate
-            $form = new MultiModelRenderForm($this->formConfig, $this->model);
+            $renderForm = $this->renderForm;
+            $form = new $renderForm($this->formConfig, $this->model);
             $form->index = $idx;
             $form->parentWidget = $this;
             $form->isCopyTemplate = true;
@@ -975,14 +1000,13 @@ class MultiModelForm extends CWidget
             echo $form->render();
         }
 
-        echo CHtml::script('mmfRecordCount='.$this->_recordCount);
+        echo CHtml::script('mmfRecordCount=' . $this->_recordCount);
 
         if ($this->tableView)
         {
             echo CHtml::closeTag('tbody');
             echo CHtml::closeTag('table');
-        }
-        elseif ($this->isSortable())
+        } elseif ($this->isSortable())
             echo CHtml::closeTag('div');
     }
 }
@@ -996,19 +1020,19 @@ class MultiModelRenderForm extends CForm
     public $index;
     public $isCopyTemplate;
     public $primaryKey;
+
     /**
      * Modified for bootstrapLayout
      */
     public function renderButtons()
     {
-        if($this->parentWidget->bootstrapLayout)
+        if ($this->parentWidget->bootstrapLayout)
         {
-            $output='';
-            foreach($this->getButtons() as $button)
-                $output.=$this->renderElement($button);
-            return $output!=='' ? "<div class=\"form-actions\">".$output."</div>\n" : '';
-        }
-        else
+            $output = '';
+            foreach ($this->getButtons() as $button)
+                $output .= $this->renderElement($button);
+            return $output !== '' ? "<div class=\"form-actions\">" . $output . "</div>\n" : '';
+        } else
             parent::renderButtons();
     }
 
@@ -1017,26 +1041,25 @@ class MultiModelRenderForm extends CForm
      */
     public function renderElement($element)
     {
-        if($this->parentWidget->bootstrapLayout) //begin bootstrapLayout
+        if ($this->parentWidget->bootstrapLayout) //begin bootstrapLayout
         {
-            if(is_string($element))
+            if (is_string($element))
             {
-                if(($e=$this[$element])===null && ($e=$this->getButtons()->itemAt($element))===null)
+                if (($e = $this[$element]) === null && ($e = $this->getButtons()->itemAt($element)) === null)
                     return $element;
                 else
-                    $element=$e;
+                    $element = $e;
             }
-            if($element->getVisible())
+            if ($element->getVisible())
             {
-                if($element instanceof CFormInputElement)
+                if ($element instanceof CFormInputElement)
                 {
-                    if($element->type==='hidden')
-                        return "<div style=\"display:none\">\n".$element->render()."</div>\n";
+                    if ($element->type === 'hidden')
+                        return "<div style=\"display:none\">\n" . $element->render() . "</div>\n";
                     else
-                        return "<div class=\"controls field_{$element->name}\">\n".$element->render()."</div>\n";
-                }
-                else if($element instanceof CFormButtonElement)
-                    return $element->render()."\n";
+                        return "<div class=\"controls field_{$element->name}\">\n" . $element->render() . "</div>\n";
+                } else if ($element instanceof CFormButtonElement)
+                    return $element->render() . "\n";
                 else
                     return $element->render();
             }
@@ -1068,14 +1091,14 @@ class MultiModelRenderForm extends CForm
     {
         $htmlOptions = $this->parentWidget->fieldsetWrapper['htmlOptions'];
 
-        if($this->isCopyTemplate)
+        if ($this->isCopyTemplate)
         {
             $htmlOptions['id'] = $this->parentWidget->getCopyFieldsetId();
-            if($this->parentWidget->hideCopyTemplate)
-                $htmlOptions['style'] = !empty($htmlOptions['style'])? $htmlOptions['style'] . ' display:none;' : 'display:none;';
+            if ($this->parentWidget->hideCopyTemplate)
+                $htmlOptions['style'] = !empty($htmlOptions['style']) ? $htmlOptions['style'] . ' display:none;' : 'display:none;';
         }
 
-        return CHtml::tag($this->parentWidget->fieldsetWrapper['tag'],$htmlOptions, $content);
+        return CHtml::tag($this->parentWidget->fieldsetWrapper['tag'], $htmlOptions, $content);
     }
 
     /**
@@ -1118,7 +1141,7 @@ class MultiModelRenderForm extends CForm
             }
         }
 
-        if(!empty($cells))
+        if (!empty($cells))
         {
             //add an empty column instead of remove link
             $cells .= CHtml::tag('th', array(), '&nbsp');
@@ -1153,37 +1176,37 @@ class MultiModelRenderForm extends CForm
      * The default implementation returns the result of {@link CHtml activeLabelEx}.
      * @return string the rendering result
      */
-    public function renderElementLabel($element,$htmlOptions=array())
+    public function renderElementLabel($element, $htmlOptions = array())
     {
-        $class='';
+        $class = '';
 
-        $options = array_merge($htmlOptions,array(
-            'label'=>$element->getLabel(),
-            'required'=>$element->getRequired()
+        $options = array_merge($htmlOptions, array(
+            'label' => $element->getLabel(),
+            'required' => $element->getRequired()
         ));
 
-        if($this->parentWidget->bootstrapLayout)
+        if ($this->parentWidget->bootstrapLayout)
         {
 
-            switch($element->type)
+            switch ($element->type)
             {
                 case 'checkbox':
                 case 'checkboxlist':
-                    $class='checkbox';
+                    $class = 'checkbox';
 
                 case 'radio':
                 case 'radiolist':
-                    $class='radio';
+                    $class = 'radio';
 
                 default:
-                    $class='control-label';
+                    $class = 'control-label';
             }
         }
 
-        if(!empty($class))
-            $options['class']=$class;
+        if (!empty($class))
+            $options['class'] = $class;
 
-        if(!empty($element->attributes['id']))
+        if (!empty($element->attributes['id']))
         {
             $options['for'] = $element->attributes['id'];
         }
@@ -1209,13 +1232,13 @@ class MultiModelRenderForm extends CForm
             {
                 $elemName = $element->name;
 
-                if($this->parentWidget->bootstrapLayout && !$this->parentWidget->tableView)
+                if ($this->parentWidget->bootstrapLayout && !$this->parentWidget->tableView)
                     $element->layout = "{label}<div class=\"controls\">{input}\n{hint}\n{error}</div>";
 
-                $elemLabel=$this->parentWidget->tableView ? '' : $this->renderElementLabel($element);
-                $replaceLabel=array('{label}'=>$elemLabel);
+                $elemLabel = $this->parentWidget->tableView ? '' : $this->renderElementLabel($element);
+                $replaceLabel = array('{label}' => $elemLabel);
                 $element->label = false; //no label on $element->render()
-                $element->layout = strtr($element->layout,$replaceLabel);
+                $element->layout = strtr($element->layout, $replaceLabel);
 
                 $doRender = false;
                 if ($this->isCopyTemplate && $element->visible) // new fieldset
@@ -1223,15 +1246,13 @@ class MultiModelRenderForm extends CForm
                     //Array types have to be rendered as array in the CopyTemplate
                     $element->name = $this->isElementArrayType($element->type) ? $elemName . '[][]' : $elemName . '[]';
                     $doRender = true;
-                }
-                elseif (!empty($this->primaryKey))
+                } elseif (!empty($this->primaryKey))
                 { // existing fieldsets update
 
                     $prefix = 'u__';
                     $element->name = '[' . $prefix . '][' . $this->index . ']' . $elemName;
                     $doRender = true;
-                }
-                else
+                } else
                 { //in validation error mode: the new added items before
                     if ($element->visible)
                     {
@@ -1241,13 +1262,12 @@ class MultiModelRenderForm extends CForm
                     }
                 }
 
-                if($doRender)
+                if ($doRender)
                 {
                     $elemOutput = $element->render();
                     $output .= $element->type == 'hidden' ? $elemOutput : $this->getWrappedRow($elemOutput);
                 }
-            }
-            else  //CFormStringElement...
+            } else //CFormStringElement...
                 $output .= $element->render();
         }
 
@@ -1265,12 +1285,15 @@ class MultiModelRenderForm extends CForm
      */
     public function renderHiddenPk($classSuffix = '[pk__]')
     {
+        $output = '';
         foreach ($this->primaryKey as $key => $value)
         {
             $modelClass = get_class($this->parentWidget->model);
             $name = $modelClass . $classSuffix . '[' . $this->index . ']' . '[' . $key . ']';
-            return CHtml::hiddenField($name, $value);
+            $output .= CHtml::hiddenField($name, $value);
         }
+
+        return $output;
     }
 
     /**
@@ -1280,14 +1303,13 @@ class MultiModelRenderForm extends CForm
      */
     public function getAddLink()
     {
-        if($this->parentWidget->addItemAsButton)
+        if ($this->parentWidget->addItemAsButton)
         {
             echo CHtml::htmlButton($this->parentWidget->addItemText,
-                  array('id' => $this->parentWidget->id,
-                        'rel' => '.' . $this->parentWidget->getCopyClass()
-                    ));
-        }
-        else
+                array('id' => $this->parentWidget->id,
+                    'rel' => '.' . $this->parentWidget->getCopyClass()
+                ));
+        } else
         {
             return CHtml::tag('a',
                 array('id' => $this->parentWidget->id,
@@ -1309,9 +1331,9 @@ class MultiModelRenderForm extends CForm
         $tag = $this->parentWidget->rowWrapper['tag'];
         $htmlOptions = $this->parentWidget->rowWrapper['htmlOptions'];
 
-        $htmlOptions['class'] = !empty($htmlOptions['class']) ? $htmlOptions['class'] .' mmf_additem' : 'mmf_additem';
+        $htmlOptions['class'] = !empty($htmlOptions['class']) ? $htmlOptions['class'] . ' mmf_additem' : 'mmf_additem';
 
-        return CHtml::tag($tag,$htmlOptions,$this->getAddLink());
+        return CHtml::tag($tag, $htmlOptions, $this->getAddLink());
     }
 
     /**
@@ -1333,8 +1355,7 @@ class MultiModelRenderForm extends CForm
             $class = empty($wrapperClass)
                 ? $this->parentWidget->getCopyClass()
                 : $wrapperClass . ' ' . $this->parentWidget->getCopyClass();
-        }
-        else
+        } else
             $class = $wrapperClass;
 
         $this->parentWidget->fieldsetWrapper['htmlOptions']['class'] = $class;
