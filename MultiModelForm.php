@@ -12,7 +12,7 @@
  * @copyright 2011 myticket it-solutions gmbh
  * @license New BSD License
  * @category User Interface
- * @version 4.5
+ * @version 4.6
  */
 class MultiModelForm extends CWidget
 {
@@ -314,30 +314,80 @@ class MultiModelForm extends CWidget
         return "if(this.hasClass('hasDatepicker')) {this.removeClass('hasDatepicker').datetimepicker(jQuery.extend($language {$jsOptions}));};";
     }
 
-    /**
-     * Support for CJuiAutoComplete: not working - needs review
-     *
-     * @param array $element
-     * @return string
-     */
+   /**
+	 * Support for CJuiAutoComplete. 
+	 *
+	 * @contributor Smirnov Ilya php1602agregator[at]gmail.com
+	 * @param array $element
+	 * @return string
+	 */
+	public static function afterNewIdAutoComplete($element)
+	{
+		$options = isset($element['options']) ? $element['options'] : array();
+		if (isset($element['sourceUrl']))
+			$options['source'] = CHtml::normalizeUrl($element['sourceUrl']);
+		else
+			$options['source'] = $element['source'];
 
-    public static function afterNewIdAutoComplete($element)
-    {
-        $options = isset($element['options']) ? $element['options'] : array();
-        if (isset($element['sourceUrl']))
-            $options['source'] = CHtml::normalizeUrl($element['sourceUrl']);
-        else
-            $options['source'] = $element['source'];
+		$jsOptions = CJavaScript::encode($options);
 
-        $jsOptions = CJavaScript::encode($options);
+		return "if ( this.hasClass('ui-autocomplete-input') )
+			{
+				var mmfAutoCompleteParent = this.parent();
+				// cloning autocomplete element (without data and events)
+				var mmfAutoCompleteClone  = this.clone();
 
-        //return "this.autocomplete($jsOptions);"; //works for non-autocomplete elements
-        //return "if(this.hasClass('ui-autocomplete-input')) this.autocomplete($jsOptions);";
-        //return "if(this.hasClass('ui-autocomplete-input')) $('#'+this.attr('id')).autocomplete($jsOptions);";
-        //return "if(this.hasClass('ui-autocomplete-input')) $('#'+this.attr('id')).autocomplete('destroy').autocomplete($jsOptions);";
-        //return "if(this.hasClass('ui-autocomplete-input')) $('#'+this.attr('id')).unbind().removeClass('ui-autocomplete-input').removeAttr('autocomplete').removeAttr('role').removeAttr('aria-autocomplete').removeAttr('aria-haspopup').autocomplete($jsOptions);";
-        //return "if(this.hasClass('ui-autocomplete-input')) this.unbind().removeClass('ui-autocomplete-input').removeAttr('autocomplete').removeAttr('role').removeAttr('aria-autocomplete').removeAttr('aria-haspopup').autocomplete($jsOptions);";
-    }
+				// removing old autocomplete element
+				mmfAutoCompleteParent.empty();
+				// re-init autocomplete with default options
+				mmfAutoCompleteClone.autocomplete({$jsOptions});
+
+				// inserting new autocomplete
+				mmfAutoCompleteParent.append(mmfAutoCompleteClone);
+			}";
+	}
+	
+	
+	/**
+	 * Support for EJuiComboBox
+	 * 
+	 * @contributor Smirnov Ilya php1602agregator[at]gmail.com
+	 * @param array $element
+	 * @param bool  $allowText
+	 * @return string
+	 */
+	public static function afterNewIdJuiComboBox($element, $allowText=true)
+	{
+		$options = array();
+		if ( $allowText )
+		{
+			$options['allowText'] = true;
+		}
+
+		$jsOptions = CJavaScript::encode($options);
+
+		return "if ( this.attr('type') == 'text' && this.hasClass('ui-autocomplete-input') ) 
+			{
+				var mmfComboBoxParent   = this.parent();
+				// cloning autocomplete and select elements (without data and events)
+				var mmfComboBoxClone    = this.clone();
+				var mmfComboSelectClone = this.prev().clone();
+
+				// removing old combobox
+				mmfComboBoxParent.empty();
+				// addind new cloden elements ()
+				mmfComboBoxParent.append(mmfComboSelectClone);
+				mmfComboBoxParent.append(mmfComboBoxClone);
+
+				// re-init autocomplete with default options
+				mmfComboBoxClone.combobox({$jsOptions});
+			}
+
+			if ( this.attr('type') == 'button' )
+			{// removing old combobox button
+				this.remove();
+			}";
+	}
 
     /**
      * This static function should be used in the controllers update action
