@@ -12,11 +12,18 @@
  * @copyright 2011 myticket it-solutions gmbh
  * @license New BSD License
  * @category User Interface
- * @version 4.6
+ * @version 5
  */
 class MultiModelForm extends CWidget
 {
     const CLASSPREFIX = 'mmf_'; //prefix for tag classes
+
+    /**
+     * The used relcopy js script
+     *
+     * @var string
+     */
+    public $jsRelCopy = 'jquery.relcopy.yii.5.0.js';
 
     /**
      * The model to handle
@@ -122,6 +129,14 @@ class MultiModelForm extends CWidget
     public $removeConfirm = 'Delete this item?';
 
     /**
+     * js code to add to onClick of the remove link
+     * Added before the internal mmf onclick
+     *
+     * @var string $removeOnClick
+     */
+    public $removeOnClick='';
+
+    /**
      * The htmlOptions for the remove link
      *
      * @var array $removeHtmlOptions
@@ -216,6 +231,14 @@ class MultiModelForm extends CWidget
      */
     public $hideCopyTemplate = true;
 
+
+    /**
+     * Clear all inputs after cloning
+     *
+     * @var bool
+     */
+    public $clearInputs = true;
+
     /**
      * Set a limit on adding items
      * @var int
@@ -244,6 +267,19 @@ class MultiModelForm extends CWidget
     public $jsAfterClone; // 'jsAfterClone' => "alert(this.attr('class'));";
     public $jsBeforeNewId; // 'jsBeforeNewId' => "alert(this.attr('id'));";
     public $jsAfterNewId; // 'jsAfterNewId' => "alert(this.attr('id'));";
+
+    /**
+     * A js function as callback after cloning
+     * Params newElem,sourceElem
+     *
+     * Usage
+     * echo CHtml::script('function alertIds(newElem,sourceElem){alert(newElem.attr("id"));alert(sourceElem.attr("id"));}');
+     *
+     * Set 'jsAfterCloneCallback'=>'alertIds'
+     *
+     * @var a js-function
+     */
+    public $jsAfterCloneCallback;
 
     /**
      * Available options for the jQuery plugin RelCopy
@@ -756,6 +792,15 @@ class MultiModelForm extends CWidget
         if (!empty($this->removeConfirm))
             $onClick = "if(confirm('{$this->removeConfirm}')) " . $onClick;
 
+        $removeOnClick = trim($this->removeOnClick);
+        if (!empty($removeOnClick))
+        {
+            if(substr($removeOnClick, -1) != ';')
+               $removeOnClick = $removeOnClick .  ';';
+            $onClick = $removeOnClick . $onClick;
+        }
+
+
         $htmlOptions = array_merge($this->removeHtmlOptions, array('onclick' => $onClick));
         $htmlOptions['class'] = isset($htmlOptions['class']) ? $htmlOptions['class'] . ' ' . self::CLASSPREFIX . 'removelink' : self::CLASSPREFIX . 'removelink';
 
@@ -863,7 +908,11 @@ class MultiModelForm extends CWidget
         if (!empty($this->jsAfterNewId))
             $this->options['afterNewId'] = $this->jsAfterNewId;
 
+        if (!empty($this->jsAfterCloneCallback))
+            $this->options['afterCloneCallback'] = $this->jsAfterCloneCallback;
+
         $this->options['limitText'] = $this->limitText;
+        $this->options['clearInputs'] = $this->clearInputs;
 
         return CJavaScript::encode($this->options);
 
@@ -890,7 +939,7 @@ class MultiModelForm extends CWidget
         $this->_assets = Yii::app()->assetManager->publish(dirname(__FILE__) . DIRECTORY_SEPARATOR . 'assets');
 
         $cs->registerCoreScript('jquery');
-        $cs->registerScriptFile($this->_assets . '/js/jquery.relcopy.yii.4.0.js');
+        $cs->registerScriptFile($this->_assets . '/js/'.$this->jsRelCopy);
 
         $options = $this->getClientOptions();
         $cs->registerScript(__CLASS__ . '#' . $this->id, "jQuery('#{$this->id}').relCopy($options);");
