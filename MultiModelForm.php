@@ -1340,12 +1340,26 @@ class MultiModelRenderForm extends CForm
                 $element->layout = strtr($element->layout, $replaceLabel);
 
                 $doRender = false;
+                
+                $elem_pk = $this->primaryKey;
+                $valid_elem_pk = false;
+                
+					 if(is_array($elem_pk)) {
+						 $valid_elem_pk = true;
+						 
+						 foreach($elem_pk as  $t_pk) {
+							 $valid_elem_pk = $valid_elem_pk && !empty($t_pk);
+						 }
+					 } else {
+						 $valid_elem_pk = !empty($elem_pk);
+				    }
+                
                 if ($this->isCopyTemplate && $element->visible) // new fieldset
                 {
                     //Array types have to be rendered as array in the CopyTemplate
                     $element->name = $this->isElementArrayType($element->type) ? $elemName . '[][]' : $elemName . '[]';
                     $doRender = true;
-                } elseif (!empty($this->primaryKey))
+                } elseif ($valid_elem_pk)
                 { // existing fieldsets update
 
                     $prefix = 'u__';
