@@ -1,5 +1,4 @@
 <?php
-
 /**
  * MultiModelForm.php
  *
@@ -12,7 +11,7 @@
  * @copyright 2011 myticket it-solutions gmbh
  * @license New BSD License
  * @category User Interface
- * @version 5
+ * @version 6.0.0
  */
 class MultiModelForm extends CWidget
 {
@@ -23,7 +22,7 @@ class MultiModelForm extends CWidget
      *
      * @var string
      */
-    public $jsRelCopy = 'jquery.relcopy.yii.5.0.js';
+    public $jsRelCopy = 'jquery.relcopy.yii.6.0.js';
 
     /**
      * The model to handle
@@ -296,6 +295,33 @@ class MultiModelForm extends CWidget
      */
     public $options = array();
 
+
+    /**
+     * Used for callbacks
+     * @var
+     */
+    public $masterModel;
+
+    /**
+     * Replace existing files in the models fileDir
+     * if false, the files with the same name will be indexed filename_x.ext
+     *
+     * @var bool
+     */
+    public $fileReplaceExisting=false;
+
+    /**
+     * The html options for the preview image tag for file attributes
+     * @var array
+     */
+    public $fileImagePreviewHtmlOptions =  array('style' => 'max-width: 100px; max-height: 100px;');
+
+    /**
+     * The html options for the link for file attributes
+     * @var array
+     */
+    public $fileLinkHtmlOptions = array('target'=>'_blank');
+
     /**
      * The assets url
      *
@@ -308,6 +334,29 @@ class MultiModelForm extends CWidget
      * @var integer
      */
     private $_recordCount;
+
+
+    /**
+     * Old file attribute values
+     * @var integer
+     */
+    private $_oldFileAttributes;
+
+    /**
+     * The file attribute names
+     * @var integer
+     */
+    private $_fileAttributes;
+
+
+    /**
+     * The CUploadedFiles array, prepared for saveAs
+     *
+     * @var
+     */
+    private $_uploadedFiles;
+
+
 
     /**
      * Support for CJuiDatePicker
@@ -350,24 +399,24 @@ class MultiModelForm extends CWidget
         return "if(this.hasClass('hasDatepicker')) {this.removeClass('hasDatepicker').datetimepicker(jQuery.extend($language {$jsOptions}));};";
     }
 
-   /**
-	 * Support for CJuiAutoComplete. 
-	 *
-	 * @contributor Smirnov Ilya php1602agregator[at]gmail.com
-	 * @param array $element
-	 * @return string
-	 */
-	public static function afterNewIdAutoComplete($element)
-	{
-		$options = isset($element['options']) ? $element['options'] : array();
-		if (isset($element['sourceUrl']))
-			$options['source'] = CHtml::normalizeUrl($element['sourceUrl']);
-		else
-			$options['source'] = $element['source'];
+    /**
+     * Support for CJuiAutoComplete.
+     *
+     * @contributor Smirnov Ilya php1602agregator[at]gmail.com
+     * @param array $element
+     * @return string
+     */
+    public static function afterNewIdAutoComplete($element)
+    {
+        $options = isset($element['options']) ? $element['options'] : array();
+        if (isset($element['sourceUrl']))
+            $options['source'] = CHtml::normalizeUrl($element['sourceUrl']);
+        else
+            $options['source'] = $element['source'];
 
-		$jsOptions = CJavaScript::encode($options);
+        $jsOptions = CJavaScript::encode($options);
 
-		return "if ( this.hasClass('ui-autocomplete-input') )
+        return "if ( this.hasClass('ui-autocomplete-input') )
 			{
 				var mmfAutoCompleteParent = this.parent();
 				// cloning autocomplete element (without data and events)
@@ -381,28 +430,28 @@ class MultiModelForm extends CWidget
 				// inserting new autocomplete
 				mmfAutoCompleteParent.append(mmfAutoCompleteClone);
 			}";
-	}
-	
-	
-	/**
-	 * Support for EJuiComboBox
-	 * 
-	 * @contributor Smirnov Ilya php1602agregator[at]gmail.com
-	 * @param array $element
-	 * @param bool  $allowText
-	 * @return string
-	 */
-	public static function afterNewIdJuiComboBox($element, $allowText=true)
-	{
-		$options = array();
-		if ( $allowText )
-		{
-			$options['allowText'] = true;
-		}
+    }
 
-		$jsOptions = CJavaScript::encode($options);
 
-		return "if ( this.attr('type') == 'text' && this.hasClass('ui-autocomplete-input') ) 
+    /**
+     * Support for EJuiComboBox
+     *
+     * @contributor Smirnov Ilya php1602agregator[at]gmail.com
+     * @param array $element
+     * @param bool  $allowText
+     * @return string
+     */
+    public static function afterNewIdJuiComboBox($element, $allowText=true)
+    {
+        $options = array();
+        if ( $allowText )
+        {
+            $options['allowText'] = true;
+        }
+
+        $jsOptions = CJavaScript::encode($options);
+
+        return "if ( this.attr('type') == 'text' && this.hasClass('ui-autocomplete-input') )
 			{
 				var mmfComboBoxParent   = this.parent();
 				// cloning autocomplete and select elements (without data and events)
@@ -423,7 +472,291 @@ class MultiModelForm extends CWidget
 			{// removing old combobox button
 				this.remove();
 			}";
-	}
+    }
+
+    /**
+     * @param $fileUrl
+     * @return string
+     */
+    public static function getFileUrl($fileUrl)
+    {
+        return Yii::app()->baseUrl . '/' . $fileUrl;
+    }
+
+    /**
+     * Create a unique filename.
+     * Calls the mmfFileDir(attribute,this) if implemented in the model,
+     * otherwise the filepath is the relative path from webroot: files/modelclass.
+     * Adds numeric idx name_idx.ext until the file not exists in the filepath.
+     *
+     * @param $model
+     * @param $attribute
+     * @param $filename
+     * @return string
+     */
+    public function createUniqueFilenamePath($model,$attribute,$filename)
+    {
+        if(method_exists($model,'mmfFileDir'))
+            $filePath = call_user_func(array($model,'mmfFileDir'),$attribute,$this);
+        else
+            $filePath = 'files/'.strtolower(get_class($model));
+
+        $file = str_replace('/',DIRECTORY_SEPARATOR,$filePath).DIRECTORY_SEPARATOR . $filename;
+
+        if (!is_dir($filePath))
+            mkdir($filePath, 0777, true);
+
+        if($this->fileReplaceExisting)
+        {
+            if(is_file($file))
+                unset($file);
+        }
+        else
+        {
+            $idx = 0;
+            $ext = pathinfo($file, PATHINFO_EXTENSION);
+            $rawfileName = substr(basename($file),0,-(strlen($ext)+1));
+            while (is_file($file))
+            {
+                $idx++;
+                $file = $filePath . DIRECTORY_SEPARATOR . $rawfileName . '_' . $idx .'.'. $ext;
+            }
+        }
+        return $filePath.DIRECTORY_SEPARATOR . $filename;
+    }
+
+    /**
+     * Return the relative filepath from webroot
+     *
+     * @param $url
+     * @return string
+     */
+    public function getFilePathFromUrl($url)
+    {
+        return str_replace('/',DIRECTORY_SEPARATOR,$url);
+    }
+
+
+    /**
+     * Return a image tag if fileUrl is an image, downloadlink otherwise
+     * Used in renderElement as hint for a file attribute.
+     *
+     * If the model implements a method mmfGetFileInfo like below, this method will be used instead of default implementation.
+     * public function mmfGetFileInfo($attribute,$value,$multiModelform)
+     * {
+     *    ... render the imagepreview/downloadlink ... for this attribute
+     * }
+     *
+     * @param $value
+     * @return string
+     */
+    public function getFileInfo($attribute,$value)
+    {
+        if(empty($value))
+            return;
+
+        if(method_exists($this->model,'mmfGetFileInfo'))
+            return call_user_func(array($this->model,'mmfGetFileInfo'),$attribute,$value,$this);
+        else
+        {
+            $fileNamePath = $this->getFilePathFromUrl($value);
+            if(!is_file($fileNamePath))
+                return;
+
+            $mimeType = CFileHelper::getMimeType($fileNamePath);
+            $value = self::getFileUrl($value);
+            if(strpos($mimeType,'image')===0) //image
+                return CHtml::image($value,basename($value),$this->fileImagePreviewHtmlOptions);
+            else
+                return CHtml::link($value,$value,$this->fileLinkHtmlOptions);
+        }
+    }
+
+
+    /**
+     * Check if a file attribute has an old value
+     *
+     * @param $model
+     * @param $idx
+     * @param $attribute
+     * @return bool
+     */
+    protected function hasOldFileAttributeValue($model,$idx,$attribute)
+    {
+        $modelClass = get_class($model);
+        return !empty($this->_oldFileAttributes) &&
+        isset($this->_oldFileAttributes[$modelClass]) &&
+        isset($this->_oldFileAttributes[$modelClass][$idx]) &&
+        isset($this->_oldFileAttributes[$modelClass][$idx][$attribute]);
+    }
+
+
+    /**
+     * Get the old value of a file attribute
+     *
+     * @param $model
+     * @param $idx
+     * @param $attribute
+     * @return mixed|null
+     */
+    protected function getOldFileAttributeValue($model,$idx,$attribute)
+    {
+        $value = null;
+        $modelClass = get_class($model);
+        if($this->hasOldFileAttributeValue($model,$idx,$attribute))
+            $value = json_decode($this->_oldFileAttributes[$modelClass][$idx][$attribute],true);
+        return $value;
+    }
+
+
+    /**
+     * Save all registered uploads and assign the model attribute
+     */
+    public function saveUploadedFiles()
+    {
+        $uploadOk = true;
+        if(!empty($this->_uploadedFiles))
+        {
+            foreach($this->_uploadedFiles as $item)
+            {
+                foreach($item['uploads'] as $attribute=>$uploadedFile)
+                {
+                    $this->saveUploadedFile($item['model'],$attribute,$uploadedFile);
+                    if($item['model']->hasErrors())
+                        $uploadOk = false;
+                }
+            }
+        }
+
+        return $uploadOk;
+    }
+
+
+    /**
+     * @param $uploadedFile CUploadedFile
+     * Set the attribute to the (relative) fileUrl
+     * @param $model
+     */
+    public function saveUploadedFile($model,$attribute,$uploadedFile)
+    {
+        if(!empty($uploadedFile) && !empty($model))
+        {
+            if($model->hasErrors($attribute)) //save uploaded file only if not has errors
+                return;
+
+            if(method_exists($model,'mmfSaveUploadedFile'))
+                call_user_func(array($model,'mmfSaveUploadedFile'),$attribute,$uploadedFile,$this);
+            else
+                $this->saveFile($model,$attribute,$uploadedFile);
+        }
+    }
+
+    /**
+     * @param $uploadedFile
+     * @param $model
+     * @param $attribute
+     * @return bool
+     */
+    public function saveFile($model,$attribute,$uploadedFile)
+    {
+        $relPath = $this->createUniqueFilenamePath($model,$attribute,$uploadedFile->getName());
+        $saved = $uploadedFile->saveAs($relPath);
+        if ($saved)
+        {
+            $model->$attribute = str_replace(DIRECTORY_SEPARATOR, '/', $relPath);
+        } else
+            $model->addError($attribute, 'Unable to save uploaded file');
+
+        return $saved;
+    }
+
+    /**
+     * Get the CUploadedFile instance for a file attribute
+     *
+     * @param $model
+     * @param $prefix
+     * @param $idx
+     * @param $attribute
+     * @return CUploadedFile
+     */
+    protected function getUploadedFile($model,$prefix,$idx,$attribute)
+    {
+        return empty($prefix) ? CUploadedFile::getInstance($model, $attribute."[$idx]") : CUploadedFile::getInstance($model, $prefix."[$idx]".$attribute);
+    }
+
+    /**
+     * Register a attribute as file attribute on form rendering
+     *
+     * @param $attribute
+     */
+    public function registerFileAttribute($attribute)
+    {
+        if(!isset($this->_fileAttributes))
+            $this->_fileAttributes = array();
+
+        if((!in_array($attribute,$this->_fileAttributes)))
+            $this->_fileAttributes[]=$attribute;
+    }
+
+    /**
+     * Check the file attributes and upload the files
+     * Assign path to the file attribute
+     * Restore old fileattribute value if no file is uploaded
+     *
+     * @param $model
+     * @param $name
+     * @return bool
+     */
+    protected function registerUploadedFiles($formData,&$model,$prefix,$idx,$isCloned=false)
+    {
+        $registeredAttributes = array();
+        $uploads = array();
+        foreach ($this->getFileAttributes($formData) as $attribute)
+        {
+            $uploadedFile = $this->getUploadedFile($model,$prefix,$idx,$attribute);
+            if (is_null($uploadedFile))
+            {
+                if(!$isCloned)
+                {
+                    if($this->hasOldFileAttributeValue($model,$idx,$attribute))
+                        $model->$attribute=$this->getOldFileAttributeValue($model,$idx,$attribute);
+                }
+                else
+                    $model->$attribute=null;
+
+                continue;
+            }
+
+            $uploads[$attribute]=$uploadedFile;
+            $registeredAttributes[]=$attribute;
+            //$this->saveUploadedFile($model,$attribute,$uploadedFile);
+        }
+
+        if(!empty($uploads))
+            $this->_uploadedFiles[]=array('model'=>$model,'uploads'=>$uploads);
+
+        return $registeredAttributes;
+    }
+
+
+    /**
+     * Get the attributes of type file, submitted by hidden fields from the form
+     *
+     * @param $formData
+     * @return int
+     */
+    public function getFileAttributes($formData)
+    {
+        if(!isset($this->_fileAttributes))
+        {
+            $name=get_class($this->model) . '_fileAttributes';
+            $this->_fileAttributes = isset($formData[$name]) ? $formData[$name] : array();
+        }
+
+        return $this->_fileAttributes;
+    }
+
+
 
     /**
      * This static function should be used in the controllers update action
@@ -439,7 +772,7 @@ class MultiModelForm extends CWidget
      * @param array $formData (default = $_POST)
      * @return boolean
      */
-    public static function save($model, &$validatedItems, &$deleteItems = array(), $masterValues = array(), $formData = null)
+    public static function save($model, &$validatedItems, &$deleteItems = array(), $masterValues = array(), $formData = null,$masterModel=null)
     {
         //validate if empty: means no validation has been done
         $doValidate = empty($validatedItems) && empty($deleteItems);
@@ -453,7 +786,7 @@ class MultiModelForm extends CWidget
         if ($doValidate)
         {
             //validate and assign $masterValues
-            if (!self::validate($model, $validatedItems, $deleteItems, $masterValues, $formData))
+            if (!self::validate($model, $validatedItems, $deleteItems, $masterValues, $formData,$masterModel))
                 return false;
         }
 
@@ -505,19 +838,27 @@ class MultiModelForm extends CWidget
      * @param array $deleteItems returns the array of model for deleting
      * @param array $masterValues attributes to assign before saving
      * @param array $formData (default = $_POST)
-     * @return boolean
+     * @param null $masterModel the instance of the mastermodel will be submitted to the mmfCallbacks (fileupload, ...)
+     * @param array $initAttributes assign virtual attributes, which are not part of attributenames and will not be assigned by setAttributes
+     * @return bool
      */
-    public static function validate($model, &$validatedItems, &$deleteItems = array(), $masterValues = array(), $formData = null)
+    public static function validate($model, &$validatedItems, &$deleteItems = array(), $masterValues = array(), $formData = null,$masterModel=null,$initAttributes=array())
     {
         $widget = new MultiModelForm;
         $widget->model = $model;
+        $widget->masterModel = $masterModel;
 
         $widget->checkModel();
 
-        if (!$widget->initItems($validatedItems, $deleteItems, $masterValues, $formData))
+        if (!$widget->initItems($validatedItems, $deleteItems, $masterValues, $formData,$initAttributes))
+        {
+            $widget->saveUploadedFiles(); //saves files only if the fileattribute has no errors
             return false; //at least one item is not valid
+        }
         else
-            return true;
+        {
+            return $widget->saveUploadedFiles();
+        }
     }
 
     /**
@@ -527,44 +868,74 @@ class MultiModelForm extends CWidget
      * @param array $validatedItems the items which were validated
      * @param array $deleteItems the items to delete
      * @param array $masterValues assign additional masterdata before save
+     * @param array $initAttributes assign virtual attributes, which are not part of attributenames and will not be assigned by setAttributes
      * @return array array of model
      */
-    public function initItems(&$validatedItems, &$deleteItems, $masterValues = array(), $formData = null)
+    public function initItems(&$validatedItems, &$deleteItems, $masterValues = array(), $formData = null,$initAttributes=array())
     {
         if (!isset($formData))
             $formData = $_POST;
 
         $result = true;
         $newItems = array();
+        $this->_fileAttributes = null;
+        $this->_uploadedFiles = array();
 
         $validatedItems = array(); //bugfix: 1.0.2
         $deleteItems = array();
-
         $modelClass = get_class($this->model);
 
         if (!isset($formData) || empty($formData[$modelClass]))
             return true;
 
+
+        //init the old file attributes array
+        $this->_oldFileAttributes = array();
+        if (isset($formData[$modelClass]['f__']))
+        {
+            foreach ($formData[$modelClass]['f__'] as $idx => $attributes)
+            {
+                if(!isset($this->_oldFileAttributes[$modelClass]))
+                    $this->_oldFileAttributes[$modelClass] = array();
+                if(!isset($this->_oldFileAttributes[$modelClass][$idx]))
+                    $this->_oldFileAttributes[$modelClass][$idx] = array();
+                $this->_oldFileAttributes[$modelClass][$idx] = $attributes;
+            }
+            unset($formData[$modelClass]['f__']);
+        }
+
         //----------- NEW (on validation error) -----------
 
         if (isset($formData[$modelClass]['n__']))
         {
-            foreach ($formData[$modelClass]['n__'] as $idx => $attributes)
+            $submittedItems = $formData[$modelClass]['n__'];
+            unset($formData[$modelClass]['n__']);
+
+            foreach ($submittedItems as $idx => $attributes)
             {
                 $model = new $modelClass;
+                if(!empty($initAttributes))
+                    foreach($initAttributes as $k=>$v)
+                        $model->$k = $v;
+
                 $model->attributes = $attributes;
+                $registeredForUpload=$this->registerUploadedFiles($formData,$model,"[n__]",$idx);
+
+                if($this->allSubmittedAttributesEmpty($model,$formData,$registeredForUpload))
+                    continue;
+
+                if(!empty($registeredForUpload))
+                    $this->validateUploadFile($model);
 
                 if (!empty($masterValues))
                     $model->setAttributes($masterValues, false); //assign mastervalues
 
                 // validate
-                if (!$model->validate())
+                if (!$model->validate(null,false)) //don't clear errors
                     $result = false;
 
                 $validatedItems[] = $model;
             }
-
-            unset($formData[$modelClass]['n__']);
         }
 
         //----------- UPDATE -----------
@@ -573,9 +944,15 @@ class MultiModelForm extends CWidget
 
         if (isset($formData[$modelClass]['u__']))
         {
-            foreach ($formData[$modelClass]['u__'] as $idx => $attributes)
+            $submittedItems = $formData[$modelClass]['u__'];
+            unset($formData[$modelClass]['u__']);
+
+            foreach ($submittedItems as $idx => $attributes)
             {
                 $model = new $modelClass('update');
+                if(!empty($initAttributes))
+                    foreach($initAttributes as $k=>$v)
+                        $model->$k = $v;
 
                 //load the models and/or assign the primary keys
                 if (is_array($allExistingPk))
@@ -592,8 +969,7 @@ class MultiModelForm extends CWidget
 
                         $model = $model->findByPk($primaryKeys); //load the model attributes from db
                     }
-
-                    else
+                    elseif(method_exists($model,'setOldPrimaryKey'))
                         //allow to change pk, if pk is part of the visible formelements
                         $model->setOldPrimaryKey($primaryKeys);
 
@@ -607,11 +983,15 @@ class MultiModelForm extends CWidget
 
                 $model->attributes = $attributes;
 
+                $registeredForUpload=$this->registerUploadedFiles($formData,$model,"[u__]",$idx);
+                if(!empty($registeredForUpload))
+                    $this->validateUploadFile($model);
+
                 if (!empty($masterValues))
                     $model->setAttributes($masterValues, false); //assign mastervalues
 
                 // validate
-                if (!$model->validate())
+                if (!$model->validate(null,false))
                     $result = false;
 
                 $validatedItems[] = $model;
@@ -620,8 +1000,6 @@ class MultiModelForm extends CWidget
                 if (is_array($allExistingPk))
                     unset($allExistingPk[$idx]);
             }
-
-            unset($formData[$modelClass]['u__']);
         }
 
         //----------- DELETE -----------
@@ -635,80 +1013,59 @@ class MultiModelForm extends CWidget
         unset($formData[$modelClass]['pk__']);
 
         //----------- Check for cloned elements by jQuery -----------
+
         if (!empty($formData[$modelClass])) //has cloned elements
         {
-            // use the first item as reference
-            $refAttribute = key($formData[$modelClass]);
-            $refArray = array_shift($formData[$modelClass]);
-
-            if (!empty($refArray))
-                foreach ($refArray as $idx => $value)
+            //convert the submitted structure ModelClass[attribute]=>array(idx=>value) to ModelClass[idx]=>array(attribute=>value)
+            $modelsData = array();
+            foreach($formData[$modelClass] as $modelAttribute=>$attributeValues)
+            {
+                foreach($attributeValues as $idx=>$value)
                 {
-                    // check continue if all values are empty
-                    if (empty($value))
-                    {
-                        $allEmpty = true;
-                        foreach ($formData[$modelClass] as $attrKey => $values)
-                        {
-                            if (is_array($values[$idx])) //bugfix v2.1.1 have to check empty array items too
-                            {
-                                $isEmpty = true;
-                                foreach ($formData[$modelClass][$attrKey] as $item)
-                                {
-                                    if (!empty($item[$idx]))
-                                    {
-                                        $isEmpty = false;
-                                        break;
-                                    }
-                                }
-                            } else
-                                $isEmpty = empty($values[$idx]);
+                    if(!isset($modelsData[$idx]))
+                        $modelsData[$idx] = array();
 
-                            $allEmpty = $isEmpty && $allEmpty;
-                            if (!$allEmpty)
-                                break;
-                        }
+                    $modelsData[$idx][$modelAttribute]=$value;
+                }
+            }
 
-                        if ($allEmpty)
-                            continue;
-                    }
+            foreach($modelsData as $idx => $attributes)
+            {
+                $model = new $modelClass;
+                if(!empty($initAttributes))
+                    foreach($initAttributes as $k=>$v)
+                        $model->$k = $v;
 
-                    $model = new $modelClass;
-                    $model->$refAttribute = $value;
+                $model->attributes = $attributes; //safe only
+                $registeredForUpload=$this->registerUploadedFiles($formData,$model,'',$idx,true);
 
-                    foreach ($formData[$modelClass] as $attrKey => $values)
-                    {
-                        //v2.2 support for checkboxlist / radiolist
-                        if (is_array($values[$idx]))
-                        {
-                            $arrayAttribute = array();
-                            foreach ($formData[$modelClass][$attrKey] as $item)
-                            {
-                                if (!empty($item[$idx]))
-                                    $arrayAttribute[] = $item[$idx];
-                            }
+                if($this->allSubmittedAttributesEmpty($model,$formData,$registeredForUpload))
+                    continue;
 
-                            $model->$attrKey = $arrayAttribute;
-                        } else
-                            $model->$attrKey = $values[$idx];
-                    }
+                if(!empty($registeredForUpload))
+                    $this->validateUploadFile($model);
 
-                    //assign mastervalues without checking rules for new records
+                //assign mastervalues without checking rules
+                if (!empty($masterValues))
                     $model->setAttributes($masterValues, false);
 
-                    // validate
-                    if (!$model->validate())
-                        $result = false;
+                // validate
+                if (!$model->validate(null,false))
+                    $result = false;
 
-                    $validatedItems[] = $model;
-                }
+                $validatedItems[] = $model;
+            }
         }
 
         return $result;
     }
 
     /**
-     * Get the primary key as array (key => value)
+     * Get the primary key as array (key => value).
+     * A pk is needed to determine which records to delete.
+     * If no pk is available it works too, but the deleteditems on validate is always empty and each record isnew.
+     * Detect the pk from CActiveRecord and EMongoDocument.
+     * If working with formmodels a custom callbackMethod mmfPrimaryKey of the model will be called if defined.
      *
      * @param CModel $model
      * @return array
@@ -728,18 +1085,30 @@ class MultiModelForm extends CWidget
 
                 $result = is_array($pkValue) ? $pkValue : array($pkName => $pkValue);
             }
-        } else // when working with EMongoDocument
-            if (method_exists($model, 'primaryKey'))
+        }
+        elseif(method_exists($model,'primaryKey')) // when working with EMongoDocument
+        {
+            $pkName = $model->primaryKey();
+            if(is_array($pkName))
             {
-                $pkName = $model->primaryKey();
+                $result = array();
+                foreach($pkName as $pkN)
+                    $result[$pkN]=$model->$pkN;
+            }
+            else
+            {
                 $pkValue = $model->$pkName;
                 if (empty($pkValue))
                     $result = array($pkName => $pkValue);
             }
+        }
+        elseif(method_exists($model,'mmfPrimaryKey'))
+        {
+            $result = $model->mmfPrimaryKey();
+        }
 
         return $result;
     }
-
 
     /**
      * Get the copyClass
@@ -757,7 +1126,6 @@ class MultiModelForm extends CWidget
             return $selector;
         }
     }
-
 
     /**
      * @since 3.2
@@ -796,10 +1164,9 @@ class MultiModelForm extends CWidget
         if (!empty($removeOnClick))
         {
             if(substr($removeOnClick, -1) != ';')
-               $removeOnClick = $removeOnClick .  ';';
+                $removeOnClick = $removeOnClick .  ';';
             $onClick = $removeOnClick . $onClick;
         }
-
 
         $htmlOptions = array_merge($this->removeHtmlOptions, array('onclick' => $onClick));
         $htmlOptions['class'] = isset($htmlOptions['class']) ? $htmlOptions['class'] . ' ' . self::CLASSPREFIX . 'removelink' : self::CLASSPREFIX . 'removelink';
@@ -853,7 +1220,6 @@ class MultiModelForm extends CWidget
         $this->registerClientScript();
         parent::init();
     }
-
 
     /**
      * Check the model instance on init / after create
@@ -915,7 +1281,6 @@ class MultiModelForm extends CWidget
         $this->options['clearInputs'] = $this->clearInputs;
 
         return CJavaScript::encode($this->options);
-
     }
 
     /**
@@ -927,7 +1292,6 @@ class MultiModelForm extends CWidget
     {
         return get_class($this->model) . '_' . self::CLASSPREFIX . 'sortable';
     }
-
 
     /**
      * Registers the relcopy javascript file.
@@ -961,8 +1325,7 @@ class MultiModelForm extends CWidget
      */
     public function renderTableBegin($renderAddLink)
     {
-        $renderForm = $this->renderForm;
-        $form = new $renderForm($this->formConfig, $this->model);
+        $form = $this->createModelForm($this->model);
         $form->parentWidget = $this;
 
         //add link as div
@@ -1008,7 +1371,6 @@ class MultiModelForm extends CWidget
 
         return $limit > 0 ? ($limit - $this->_recordCount) <= 0 : false;
     }
-
 
     /**
      * Renders the active form if a model and formConfig is set
@@ -1058,8 +1420,7 @@ class MultiModelForm extends CWidget
 
             foreach ($data as $model)
             {
-                $renderForm = $this->renderForm;
-                $form = new $renderForm($this->formConfig, $model);
+                $form = $this->createModelForm($model);
                 $form->index = $idx;
                 $form->parentWidget = $this;
 
@@ -1084,8 +1445,7 @@ class MultiModelForm extends CWidget
         if ($showAddLink)
         {
             // add an empty fieldset as CopyTemplate
-            $renderForm = $this->renderForm;
-            $form = new $renderForm($this->formConfig, $this->model);
+            $form = $this->createModelForm($this->model);
             $form->index = $idx;
             $form->parentWidget = $this;
             $form->isCopyTemplate = true;
@@ -1100,6 +1460,9 @@ class MultiModelForm extends CWidget
         }
 
         echo CHtml::script('mmfRecordCount=' . $this->_recordCount);
+        if(!empty($this->_fileAttributes))
+            foreach($this->_fileAttributes as $fileAttribute)
+                echo CHtml::hiddenField(get_class($this->model) . '_fileAttributes[]', $fileAttribute);
 
         if ($this->tableView)
         {
@@ -1107,6 +1470,97 @@ class MultiModelForm extends CWidget
             echo CHtml::closeTag('table');
         } elseif ($this->isSortable())
             echo CHtml::closeTag('div');
+    }
+
+    /**
+     * @return mixed
+     */
+    protected function createModelForm($model)
+    {
+        $class = $this->renderForm;
+        return new $class($this->formConfig,$model);
+    }
+
+
+    /**
+     * Check if a value is empty.
+     * Check arrays recursive.
+     *
+     * @param $value
+     */
+    protected function isEmptyValue($value)
+    {
+       $empty=empty($value);
+
+       if(!$empty && is_array($value))
+       {
+           $allEmpty = true;
+           foreach($value as $val)
+           {
+               $itemEmpty = $this->isEmptyValue($val);
+               if(!$itemEmpty)
+               {
+                   $allEmpty = false;
+                   break;
+               }
+           }
+           $empty = $allEmpty;
+       }
+
+       return $empty;
+    }
+
+
+    /**
+     * Check if all submitted attributes are empty
+     *
+     * @param $formData
+     * @param $modelClass
+     * @param $registeredForUpload
+     * @param $model
+     * @return bool
+     */
+    protected function allSubmittedAttributesEmpty($model,$formData,$registeredForUpload)
+    {
+        $allEmpty = true;
+        $submittedAttributes = array_keys($formData[get_class($model)]);
+        foreach ($submittedAttributes as $attribute)
+        {
+            if (in_array($attribute, $registeredForUpload) || !$this->isEmptyValue($model->{$attribute}))
+            {
+                $allEmpty = false;
+                break;
+            }
+        }
+        return $allEmpty;
+    }
+
+    /**
+     * @param $model
+     * @param $modelClass
+     * @return bool
+     */
+    protected function validateUploadFile($model)
+    {
+        foreach ($model->getValidators() as $validator)
+        {
+            if ($validator instanceof CFileValidator)
+            {
+                foreach ($this->_uploadedFiles as $uploadItem)
+                {
+                    if ($uploadItem['model'] == $model)
+                    {
+                        $class = get_class($model);
+                        $fileModel = new $class;
+                        foreach ($uploadItem['uploads'] as $fileAttr => $cUploadFile)
+                            $fileModel->$fileAttr = $cUploadFile;
+                        $validator->validate($fileModel);
+                        if ($fileModel->hasErrors())
+                            $model->addErrors($fileModel->getErrors());
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1119,6 +1573,7 @@ class MultiModelRenderForm extends CForm
     public $index;
     public $isCopyTemplate;
     public $primaryKey;
+    public $fileAttributes;
 
     /**
      * Modified for bootstrapLayout
@@ -1174,10 +1629,15 @@ class MultiModelRenderForm extends CForm
      * @param string $content
      * @return string
      */
-    protected function getWrappedRow($content)
+    protected function getWrappedRow($element,$elemName,$content)
     {
-        return CHtml::tag($this->parentWidget->rowWrapper['tag'],
-            $this->parentWidget->rowWrapper['htmlOptions'], $content);
+        $element->getParent()->getModel();
+        $htmlOptions=$this->parentWidget->rowWrapper['htmlOptions'];
+
+        if($this->parentWidget->bootstrapLayout && $element->getParent()->getModel()->hasErrors($elemName))
+            $htmlOptions['class']=$htmlOptions['class'].' error';
+
+        return CHtml::tag($this->parentWidget->rowWrapper['tag'],$htmlOptions, $content);
     }
 
     /**
@@ -1248,7 +1708,6 @@ class MultiModelRenderForm extends CForm
             $row = $this->getWrappedFieldset($cells);
             echo CHtml::tag('thead', array(), $cells);
         }
-
     }
 
 
@@ -1286,7 +1745,6 @@ class MultiModelRenderForm extends CForm
 
         if ($this->parentWidget->bootstrapLayout)
         {
-
             switch ($element->type)
             {
                 case 'checkbox':
@@ -1324,6 +1782,7 @@ class MultiModelRenderForm extends CForm
         $output = '';
 
         $elements = $this->getElements();
+        $fileAttributes = array();
 
         foreach ($elements as $element)
         {
@@ -1332,7 +1791,7 @@ class MultiModelRenderForm extends CForm
                 $elemName = $element->name;
 
                 if ($this->parentWidget->bootstrapLayout && !$this->parentWidget->tableView)
-                    $element->layout = "{label}<div class=\"controls\">{input}\n{hint}\n{error}</div>";
+                    $element->layout = "{label}<div class=\"controls\">{input}\n{hint}\n<span class=\"help-inline\"><p class=\"help-block\">{error}</p></span></div>";
 
                 $elemLabel = $this->parentWidget->tableView ? '' : $this->renderElementLabel($element);
                 $replaceLabel = array('{label}' => $elemLabel);
@@ -1340,45 +1799,63 @@ class MultiModelRenderForm extends CForm
                 $element->layout = strtr($element->layout, $replaceLabel);
 
                 $doRender = false;
-                
+
                 $elem_pk = $this->primaryKey;
-                $valid_elem_pk = false;
-                
-					 if(is_array($elem_pk)) {
-						 $valid_elem_pk = true;
-						 
-						 foreach($elem_pk as  $t_pk) {
-							 $valid_elem_pk = $valid_elem_pk && !empty($t_pk);
-						 }
-					 } else {
-						 $valid_elem_pk = !empty($elem_pk);
-				    }
-                
+                $valid_elem_pk = !empty($elem_pk);
+                if($valid_elem_pk && is_array($elem_pk))
+                {
+                    $valid_elem_pk = true;
+                    foreach($elem_pk as  $t_pk)
+                    {
+                        //allow numerical 0, boolean false as valid pk
+                        $valid_elem_pk = $valid_elem_pk && $t_pk!=='' && !is_null($t_pk);
+                    }
+                }
+
                 if ($this->isCopyTemplate && $element->visible) // new fieldset
                 {
                     //Array types have to be rendered as array in the CopyTemplate
                     $element->name = $this->isElementArrayType($element->type) ? $elemName . '[][]' : $elemName . '[]';
                     $doRender = true;
-                } elseif ($valid_elem_pk)
+                }
+                elseif($valid_elem_pk)
                 { // existing fieldsets update
-
-                    $prefix = 'u__';
-                    $element->name = '[' . $prefix . '][' . $this->index . ']' . $elemName;
+                    $element->name = '[u__][' . $this->index . ']' . $elemName;
                     $doRender = true;
-                } else
+                }
+                else
                 { //in validation error mode: the new added items before
                     if ($element->visible)
                     {
-                        $prefix = 'n__';
-                        $element->name = '[' . $prefix . '][' . $this->index . ']' . $elemName;
+                        $element->name = '[n__][' . $this->index . ']' . $elemName;
                         $doRender = true;
                     }
                 }
 
                 if ($doRender)
                 {
+                    //set the hint to image or download link
+                    //render a hidden input for restoring file attribute old value
+                    if($element->type=='file')
+                    {
+                        //Need the fileAttributes in initItems on validation: see method MultiModelForm::isFileAttribute
+                        $this->parentWidget->registerFileAttribute($elemName);
+
+                        $fileModel = $element->getParent()->getModel();
+                        $fileValue = $fileModel->$elemName;
+
+                        if(!empty($fileValue))
+                        {
+                            $hint = $this->parentWidget->getFileInfo($elemName,$fileValue);
+                            if(!empty($hint))
+                                $element->hint = $hint;
+
+                            $output .= CHtml::hiddenField(get_class($fileModel).'[f__][' . $this->index . '][' . $elemName .']',json_encode($fileValue));
+                        }
+                    }
+
                     $elemOutput = $element->render();
-                    $output .= $element->type == 'hidden' ? $elemOutput : $this->getWrappedRow($elemOutput);
+                    $output .= $element->type == 'hidden' ? $elemOutput : $this->getWrappedRow($element,$elemName,$elemOutput);
                 }
             } else //CFormStringElement...
                 $output .= $element->render();

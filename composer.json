@@ -1,0 +1,18 @@
+{
+    "name": "joblo/multimodelform",
+    "description": "Yii extension for handling multiple records and models in a form",
+    "homepage": "https://github.com/yii-joblo/multimodelform",
+    "keywords": ["yii","multimodel"],
+    "type": "yii-extension",
+    "license": "BSD-3-Clause",
+    "authors": [
+        {
+            "name": "Joe Blocher",
+            "email": "yii@myticket.at",
+            "homepage": "http://www.myticket.at"
+        }
+    ],
+    "require": {
+        "php": ">=5.2.0"
+    }
+}
