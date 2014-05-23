@@ -522,7 +522,7 @@ class MultiModelForm extends CWidget
                 $file = $filePath . DIRECTORY_SEPARATOR . $rawfileName . '_' . $idx .'.'. $ext;
             }
         }
-        return $filePath.DIRECTORY_SEPARATOR . $filename;
+        return $file;
     }
 
     /**
