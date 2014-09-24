@@ -11,7 +11,7 @@
  * @copyright 2011 myticket it-solutions gmbh
  * @license New BSD License
  * @category User Interface
- * @version 6.0.0
+ * @version 6.0.1
  */
 class MultiModelForm extends CWidget
 {
@@ -1098,8 +1098,7 @@ class MultiModelForm extends CWidget
             else
             {
                 $pkValue = $model->$pkName;
-                if (empty($pkValue))
-                    $result = array($pkName => $pkValue);
+                $result = array($pkName => $pkValue);
             }
         }
         elseif(method_exists($model,'mmfPrimaryKey'))
@@ -1526,6 +1525,9 @@ class MultiModelForm extends CWidget
         $submittedAttributes = array_keys($formData[get_class($model)]);
         foreach ($submittedAttributes as $attribute)
         {
+             if(empty($attribute) || $attribute=='n__' || $attribute=='u__' || $attribute=='pk__')
+                continue;
+                
             if (in_array($attribute, $registeredForUpload) || !$this->isEmptyValue($model->{$attribute}))
             {
                 $allEmpty = false;
